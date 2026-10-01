@@ -7,19 +7,16 @@
     <title>Rooms - Simple Booking</title>
     <link rel="stylesheet" href="public/css/home.css">
     <link rel="stylesheet" href="rooms.css">
-    <script src="rooms.js" defer></script>
+    <script src="rooms-demo.js" defer></script>
 </head>
 <body>
     <header class="topbar">
         <a class="brand" href="./">Rooms - Simple Booking</a>
         <label class="global-search" id="global-search">
             <span aria-hidden="true">⌕</span>
-            <input id="search" type="search" placeholder="Search rooms" autocomplete="off" aria-label="Search rooms">
+            <input id="search" type="search" placeholder="Search rooms and features" autocomplete="off" aria-label="Search rooms and features">
         </label>
-        <div class="topbar-meta">
-            <span class="local-indicator"><span></span> Saved in this browser</span>
-            <button class="text-button" id="reset-data" type="button">Reset demo data</button>
-        </div>
+        <div class="topbar-meta" id="account-nav"></div>
     </header>
 
     <main class="main-content">
@@ -76,10 +73,41 @@
             </div>
             <label class="field-label" for="room-owner">Owner <span class="optional">OPTIONAL</span></label>
             <input class="field-input" id="room-owner" name="owner" maxlength="60" placeholder="Name or team">
+            <label class="field-label">Features</label>
+            <div class="feature-options" id="feature-options"></div>
+            <label class="field-label" for="other-feature">Other</label>
+            <div class="feature-entry">
+                <input class="field-input" id="other-feature" type="text" maxlength="48" placeholder="Type a new feature name" autocomplete="off">
+                <button class="feature-add-button" id="add-feature" type="button">Add</button>
+            </div>
+            <div class="feature-suggestions" id="feature-suggestions" role="listbox" aria-label="Similar existing features" hidden></div>
+            <p class="feature-hint">Search can find rooms by any selected feature.</p>
             <div class="dialog-actions">
                 <button class="delete-button" id="delete-room" type="button" hidden>Delete room</button>
                 <button class="cancel-button" id="cancel-dialog" type="button">Cancel</button>
                 <button class="save-button" type="submit">Save room</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog class="room-dialog booking-dialog" id="booking-dialog" aria-labelledby="booking-title">
+        <form id="booking-form">
+            <div class="dialog-heading">
+                <div>
+                    <h2 id="booking-title">Book room</h2>
+                    <p class="booking-room-info" id="booking-room-info"></p>
+                </div>
+                <button class="icon-button" id="close-booking-dialog" type="button" aria-label="Close">×</button>
+            </div>
+            <label class="field-label" for="booking-start">From</label>
+            <input class="field-input" id="booking-start" name="start" type="datetime-local" required>
+            <label class="field-label" for="booking-end">To</label>
+            <input class="field-input" id="booking-end" name="end" type="datetime-local" required>
+            <label class="field-label" for="booking-reason">Reason <span class="optional">OPTIONAL</span></label>
+            <textarea class="field-input booking-reason-input" id="booking-reason" name="reason" maxlength="255" placeholder="Why do you need this room?"></textarea>
+            <p class="booking-error" id="booking-error" role="alert" hidden></p>
+            <div class="dialog-actions">
+                <button class="cancel-button" id="cancel-booking-dialog" type="button">Cancel</button>
+                <button class="save-button" type="submit">Confirm booking</button>
             </div>
         </form>
     </dialog>
