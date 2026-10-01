@@ -5,10 +5,10 @@
     const FLOORS = [4, 3, 2, 1, 0];
     const STATUSES = ['available', 'occupied', 'full', 'permanent'];
     const STATUS_LABELS = {
-        available: 'Available',
+        available: 'Empty',
         occupied: 'Occupied',
         full: 'Full',
-        permanent: 'Permanent'
+        permanent: 'Not bookable'
     };
     const ROOM_TYPES = ['Conference', 'Focus', 'Meeting', 'Office', 'Lounge', 'Lab', 'Studio', 'Booth', 'War Room'];
     const OWNER_TEAMS = ['Design', 'Operations', 'Engineering', 'Finance', 'People'];
@@ -74,14 +74,6 @@
         addFeature: document.getElementById('add-feature'),
         featureSuggestions: document.getElementById('feature-suggestions'),
         deleteRoom: document.getElementById('delete-room'),
-        bookingDialog: document.getElementById('booking-dialog'),
-        bookingForm: document.getElementById('booking-form'),
-        bookingTitle: document.getElementById('booking-title'),
-        bookingRoomInfo: document.getElementById('booking-room-info'),
-        bookingStart: document.getElementById('booking-start'),
-        bookingEnd: document.getElementById('booking-end'),
-        bookingReason: document.getElementById('booking-reason'),
-        bookingError: document.getElementById('booking-error'),
         toast: document.getElementById('toast')
     };
 
@@ -92,6 +84,15 @@
     let activeSectionId = null;
     let activeFloor = 0;
     let activeView = 'buildings';
+    let previousView = null;
+    let quickBookReturnView = 'buildings';
+    let quickBookValues = null;
+    let quickBookResult = null;
+    let calendarRoomId = null;
+    let calendarWeekOffset = 0;
+    let selectedCalendarSlots = new Set();
+    let isDraggingCalendar = false;
+    let dragSelectionMode = true;
     let pendingFeatures = [];
     let toastTimer;
 
@@ -166,10 +167,7 @@
                     const roomCount = 6 + Math.floor(Math.random() * 7);
                     for (let number = 1; number <= roomCount; number += 1) {
                         const roomNumber = `${floor === 0 ? 'E' : floor}${String(number).padStart(2, '0')}`;
-                        const statusRoll = Math.random();
-                        const status = statusRoll < 0.07 ? 'occupied'
-                            : statusRoll < 0.12 ? 'full'
-                                : statusRoll < 0.17 ? 'permanent' : 'available';
+                        const status = Math.random() < 0.12 ? 'permanent' : 'available';
                         rooms.push({
                             id: `demo-${building.id}-${section.id}-${floor}-${number}`,
                             buildingId: building.id,
@@ -198,36 +196,67 @@
     function createDemoBookings(rooms) {
         const bookings = [];
         const reasons = ['Weekly team sync', 'Sprint planning', 'Customer review', 'Interview', 'Training session', 'Focus time', 'Project kickoff', 'Quarterly planning', 'Design review', 'One-to-one'];
-        PREMADE_USERS.forEach((user, userIndex) => {
-            const userRooms = rooms.filter((room) => room.status !== 'permanent');
-            if (!userRooms.length) return;
-            const bookingCount = 1 + (userIndex % 3);
-            for (let bookingIndex = 0; bookingIndex < bookingCount; bookingIndex += 1) {
-                const room = userRooms[(userIndex * 11 + bookingIndex * 17) % userRooms.length];
-                let start = dateTimeOffset(1 + ((userIndex + bookingIndex * 2) % 14), 8 + ((userIndex * 2 + bookingIndex * 3) % 9));
-                if (start.getDay() === 0) start.setDate(start.getDate() + 1);
-                if (start.getDay() === 6) start.setDate(start.getDate() + 2);
-                const duration = 30 + (30 * ((userIndex + bookingIndex) % 4));
-                const end = new Date(start.getTime() + duration * 60 * 1000);
-                bookings.push({
-                    id: `demo-booking-${user.id}-${bookingIndex + 1}`,
-                    roomId: room.id,
-                    userId: user.id,
-                    start: start.toISOString(),
-                    end: end.toISOString(),
-                    reason: reasons[(userIndex + bookingIndex) % reasons.length],
-                    cancelled: false,
-                    demo: true
-                });
+        const workHours = [6, 8, 10, 12, 14, 16, 18, 20];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const now = new Date();
+        const opensToday = new Date(today);
+        opensToday.setHours(6, 0, 0, 0);
+        const closesToday = new Date(today);
+        closesToday.setHours(22, 0, 0, 0);
+
+        rooms.filter((room) => room.status !== 'permanent').forEach((room, roomIndex) => {
+            if (now >= opensToday && now < closesToday) {
+                const activePattern = roomIndex % 10;
+                const activeCount = activePattern < 2 ? 1
+                    : activePattern === 2 ? (room.capacity && room.capacity <= PREMADE_USERS.length ? room.capacity : 1)
+                        : 0;
+                if (activeCount) {
+                    const start = new Date(Math.max(now.getTime() - 30 * 60 * 1000, opensToday.getTime()));
+                    const end = new Date(Math.min(now.getTime() + 30 * 60 * 1000, closesToday.getTime()));
+                    for (let personIndex = 0; personIndex < activeCount; personIndex += 1) {
+                        const user = PREMADE_USERS[(roomIndex * 7 + personIndex * 5) % PREMADE_USERS.length];
+                        bookings.push({
+                            id: `demo-active-${room.id}-${personIndex}`,
+                            roomId: room.id,
+                            userId: user.id,
+                            start: start.toISOString(),
+                            end: end.toISOString(),
+                            reason: 'Focus time',
+                            cancelled: false,
+                            demo: true
+                        });
+                    }
+                }
+            }
+
+            for (let dayOffset = 1; dayOffset <= 14; dayOffset += 1) {
+                const date = new Date(today);
+                date.setDate(date.getDate() + dayOffset);
+                if (date.getDay() === 0 || date.getDay() === 6) continue;
+                const dateKey = date.toISOString().slice(0, 10);
+                const bookingCount = 2 + ((roomIndex + dayOffset) % 2);
+                for (let bookingIndex = 0; bookingIndex < bookingCount; bookingIndex += 1) {
+                    const start = new Date(date);
+                    const hourIndex = (roomIndex * 3 + dayOffset * 2 + bookingIndex * 3) % workHours.length;
+                    start.setHours(workHours[hourIndex], 0, 0, 0);
+                    const duration = 60 + ((roomIndex + dayOffset + bookingIndex) % 3) * 30;
+                    const end = new Date(start.getTime() + duration * 60 * 1000);
+                    const user = PREMADE_USERS[(roomIndex * 7 + dayOffset * 5 + bookingIndex * 3) % PREMADE_USERS.length];
+                    bookings.push({
+                        id: `demo-schedule-${room.id}-${dateKey}-${bookingIndex}`,
+                        roomId: room.id,
+                        userId: user.id,
+                        start: start.toISOString(),
+                        end: end.toISOString(),
+                        reason: reasons[(roomIndex + dayOffset + bookingIndex) % reasons.length],
+                        cancelled: false,
+                        demo: true
+                    });
+                }
             }
         });
         return bookings;
-    }
-
-    function addMissingPremadeBookings(rooms, bookings) {
-        const usersWithSeededBookings = new Set(bookings.filter((booking) => booking.demo).map((booking) => booking.userId));
-        const additions = createDemoBookings(rooms).filter((booking) => !usersWithSeededBookings.has(booking.userId));
-        return bookings.concat(additions);
     }
 
     function saveData() {
@@ -243,19 +272,27 @@
     function loadData() {
         try {
             const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-            if (saved && [3, 4, 5].includes(saved.version) && Array.isArray(saved.rooms)) {
+            if (saved && [3, 4, 5, 6].includes(saved.version) && Array.isArray(saved.rooms)) {
                 const rooms = saved.rooms.filter(isValidRoom);
                 const missingRoomFeatures = rooms.some((room) => !Array.isArray(room.features));
+                let normalizedRoomStatuses = false;
                 rooms.forEach((room) => {
                     if (!Array.isArray(room.features)) room.features = randomRoomFeatures();
+                    if (room.status !== 'permanent' && room.status !== 'available') {
+                        room.status = 'available';
+                        normalizedRoomStatuses = true;
+                    }
                 });
                 let bookings = Array.isArray(saved.bookings)
                     ? saved.bookings.filter((booking) => isValidBooking(booking, rooms))
                     : createDemoBookings(rooms);
-                bookings = addMissingPremadeBookings(rooms, bookings);
+                if (saved.demoSeedVersion !== 2) {
+                    const existingIds = new Set(bookings.map((booking) => booking.id));
+                    bookings = bookings.concat(createDemoBookings(rooms).filter((booking) => !existingIds.has(booking.id)));
+                }
                 const features = createFeatureCatalog(saved.features, rooms);
-                const updated = { version: 5, rooms, bookings, features };
-                if (saved.version !== 5 || !Array.isArray(saved.features) || missingRoomFeatures) {
+                const updated = { version: 6, demoSeedVersion: 2, rooms, bookings, features };
+                if (saved.version !== 6 || saved.demoSeedVersion !== 2 || !Array.isArray(saved.features) || missingRoomFeatures || normalizedRoomStatuses) {
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
                 }
                 return updated;
@@ -266,8 +303,9 @@
                 const rooms = previous.rooms.filter(isValidRoom);
                 rooms.forEach((room) => {
                     if (!Array.isArray(room.features)) room.features = randomRoomFeatures();
+                    if (room.status !== 'permanent') room.status = 'available';
                 });
-                const migrated = { version: 5, rooms, bookings: createDemoBookings(rooms), features: createFeatureCatalog([], rooms) };
+                const migrated = { version: 6, demoSeedVersion: 2, rooms, bookings: createDemoBookings(rooms), features: createFeatureCatalog([], rooms) };
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
                 return migrated;
             }
@@ -276,7 +314,7 @@
         }
 
         const rooms = createDemoRooms();
-        const initialData = { version: 5, rooms, bookings: createDemoBookings(rooms), features: createFeatureCatalog([], rooms) };
+        const initialData = { version: 6, demoSeedVersion: 2, rooms, bookings: createDemoBookings(rooms), features: createFeatureCatalog([], rooms) };
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
         } catch (error) {
@@ -342,6 +380,23 @@
         return Number(floor) === 0 ? 'E' : String(floor);
     }
 
+    function isAdmin() {
+        return signedInUser?.role === 'Admin';
+    }
+
+    function currentRoomOccupancy(room) {
+        const now = Date.now();
+        return data.bookings.filter((booking) => booking.roomId === room.id && !booking.cancelled
+            && Date.parse(booking.start) <= now && Date.parse(booking.end) > now).length;
+    }
+
+    function currentRoomStatus(room) {
+        if (room.status === 'permanent') return 'permanent';
+        const occupancy = currentRoomOccupancy(room);
+        if (!occupancy) return 'available';
+        return room.capacity && occupancy >= room.capacity ? 'full' : 'occupied';
+    }
+
     function roomCountForBuilding(buildingId) {
         return data.rooms.filter((room) => room.buildingId === buildingId).length;
     }
@@ -353,7 +408,7 @@
     function addDemoNotice(screen) {
         const notice = document.createElement('p');
         notice.className = 'demo-notice';
-        notice.textContent = 'Demo limits: buildings and floors are fixed. You can add and change rooms, but cannot add buildings or floors.';
+        notice.textContent = 'Designed for computers; works on phones too, but sizing may vary. Demo: only admins can add or edit rooms; existing rooms cannot be moved, and buildings or floors cannot be added.';
         screen.prepend(notice);
     }
 
@@ -503,7 +558,6 @@
             grid.append(button);
         });
         screen.append(heading, grid);
-        addDemoNotice(screen);
         elements.root.replaceChildren(screen);
     }
 
@@ -545,17 +599,18 @@
             grid.append(button);
         });
         screen.append(heading, grid);
-        addDemoNotice(screen);
         elements.root.replaceChildren(screen);
     }
 
     function createRoomCard(room) {
+        const roomState = currentRoomStatus(room);
+        const occupancy = currentRoomOccupancy(room);
         const card = document.createElement('article');
-        card.className = `room-card ${room.status}`;
+        card.className = `room-card ${roomState}`;
         const main = document.createElement('button');
         main.className = 'room-card-main';
         main.type = 'button';
-        main.setAttribute('aria-label', `Edit ${room.name}, ${STATUS_LABELS[room.status]}`);
+        main.setAttribute('aria-label', `View availability for ${room.name}, ${STATUS_LABELS[roomState]}`);
         const name = document.createElement('span');
         name.className = 'room-name';
         name.textContent = room.name;
@@ -568,7 +623,9 @@
         }
         const status = document.createElement('span');
         status.className = 'room-status';
-        status.textContent = STATUS_LABELS[room.status];
+        status.textContent = roomState === 'occupied' || roomState === 'full'
+            ? `${STATUS_LABELS[roomState]} · ${occupancy}/${room.capacity || '∞'}`
+            : STATUS_LABELS[roomState];
         main.append(status);
         if (room.capacity) {
             const capacity = document.createElement('span');
@@ -585,17 +642,28 @@
                 featureList.title = features.join(', ');
                 main.append(featureList);
             }
-        main.addEventListener('click', () => openRoomDialog(room));
+        main.addEventListener('click', () => openRoomCalendar(room));
         card.append(main);
 
+        const actions = document.createElement('div');
+        actions.className = 'room-card-actions';
         const action = document.createElement('button');
         action.className = 'book-room-button';
         action.type = 'button';
-        action.textContent = room.status === 'permanent' ? 'Not bookable' : 'Book';
-        action.disabled = room.status === 'permanent';
-        action.setAttribute('aria-label', `${room.status === 'permanent' ? 'Not bookable' : 'Book'} ${room.name}`);
-        action.addEventListener('click', () => openBookingDialog(room));
-        card.append(action);
+        action.textContent = 'View calendar';
+        action.setAttribute('aria-label', `View availability for ${room.name}`);
+        action.addEventListener('click', () => openRoomCalendar(room));
+        actions.append(action);
+        if (isAdmin()) {
+            const edit = document.createElement('button');
+            edit.className = 'room-edit-button';
+            edit.type = 'button';
+            edit.textContent = 'Edit';
+            edit.setAttribute('aria-label', `Edit ${room.name}`);
+            edit.addEventListener('click', () => openRoomDialog(room));
+            actions.append(edit);
+        }
+        card.append(actions);
         return card;
     }
 
@@ -648,13 +716,15 @@
 
         const grid = document.createElement('div');
         grid.className = 'rooms-grid';
-        const addRoom = document.createElement('button');
-        addRoom.className = 'room-card available add-room-card';
-        addRoom.type = 'button';
-        addRoom.setAttribute('aria-label', 'Add room');
-        addRoom.innerHTML = '<span class="add-room-plus">+</span><span class="room-status">Add Room</span>';
-        addRoom.addEventListener('click', () => openRoomDialog());
-        grid.append(addRoom);
+        if (isAdmin()) {
+            const addRoom = document.createElement('button');
+            addRoom.className = 'room-card available add-room-card';
+            addRoom.type = 'button';
+            addRoom.setAttribute('aria-label', 'Add room');
+            addRoom.innerHTML = '<span class="add-room-plus">+</span><span class="room-status">Add Room</span>';
+            addRoom.addEventListener('click', () => openRoomDialog());
+            grid.append(addRoom);
+        }
 
         const query = elements.search.value.trim().toLocaleLowerCase();
         const rooms = data.rooms.filter((room) => room.buildingId === building.id
@@ -675,6 +745,510 @@
         elements.root.replaceChildren(screen);
     }
 
+    function openRoomCalendar(room) {
+        calendarRoomId = room.id;
+        calendarWeekOffset = 0;
+        selectedCalendarSlots.clear();
+        activeView = 'room-calendar';
+        render();
+    }
+
+    function setCalendarSlot(slotKey, selected) {
+        if (selected) selectedCalendarSlots.add(slotKey);
+        else selectedCalendarSlots.delete(slotKey);
+        const slot = document.querySelector(`[data-slot="${slotKey}"]`);
+        if (slot) slot.classList.toggle('is-selected', selected);
+        const submit = document.getElementById('calendar-book-selected');
+        if (submit) {
+            const count = selectedCalendarSlots.size;
+            submit.disabled = count === 0;
+            submit.textContent = count ? `Book selected times (${count} half-hours)` : 'Select times to book';
+        }
+    }
+
+    function renderRoomCalendar(room) {
+        elements.globalSearch.hidden = true;
+        const building = BUILDINGS.find((item) => item.id === room.buildingId);
+        const section = building?.sections.find((item) => item.id === room.sectionId);
+        const screen = document.createElement('section');
+        screen.className = 'room-calendar-view';
+
+        const header = document.createElement('header');
+        header.className = 'calendar-heading';
+        const back = document.createElement('button');
+        back.className = 'back-btn';
+        back.type = 'button';
+        back.textContent = '← Rooms';
+        back.addEventListener('click', () => {
+            activeView = 'rooms';
+            calendarRoomId = null;
+            selectedCalendarSlots.clear();
+            render();
+        });
+        const title = document.createElement('div');
+        title.className = 'calendar-title';
+        const location = document.createElement('p');
+        location.className = 'selection-kicker';
+        location.textContent = `${building?.name || ''} · ${section?.name || ''} · Floor ${floorName(room.floor)}`;
+        const heading = document.createElement('h1');
+        heading.textContent = room.name;
+        const capacity = document.createElement('p');
+        capacity.className = 'calendar-capacity';
+        capacity.textContent = room.status === 'permanent'
+            ? 'Not bookable'
+            : `${room.capacity || 'Unlimited'} seat capacity · Select available times to book`;
+        title.append(location, heading, capacity);
+        header.append(back, title);
+
+        const weekStart = new Date();
+        weekStart.setHours(0, 0, 0, 0);
+        weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7) + calendarWeekOffset * 7);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        const navigation = document.createElement('div');
+        navigation.className = 'calendar-week-nav';
+        const range = document.createElement('strong');
+        const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+        range.textContent = `${dateFormatter.format(weekStart)} – ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(weekEnd)}`;
+        const weekActions = document.createElement('div');
+        weekActions.className = 'calendar-week-actions';
+        const previous = document.createElement('button');
+        previous.className = 'cancel-button';
+        previous.type = 'button';
+        previous.textContent = 'Previous week';
+        previous.disabled = calendarWeekOffset <= 0;
+        previous.addEventListener('click', () => {
+            calendarWeekOffset -= 1;
+            selectedCalendarSlots.clear();
+            render();
+        });
+        const next = document.createElement('button');
+        next.className = 'cancel-button';
+        next.type = 'button';
+        next.textContent = 'Next week';
+        next.disabled = calendarWeekOffset >= 8;
+        next.addEventListener('click', () => {
+            calendarWeekOffset += 1;
+            selectedCalendarSlots.clear();
+            render();
+        });
+        weekActions.append(previous, next);
+        navigation.append(range, weekActions);
+
+        const gridScroller = document.createElement('div');
+        gridScroller.className = 'calendar-grid-scroller';
+        const grid = document.createElement('div');
+        grid.className = 'calendar-grid';
+        const timeHeader = document.createElement('div');
+        timeHeader.className = 'calendar-day-heading calendar-time-heading';
+        timeHeader.textContent = 'Time';
+        grid.append(timeHeader);
+        for (let day = 0; day < 7; day += 1) {
+            const date = new Date(weekStart);
+            date.setDate(date.getDate() + day);
+            const dayHeading = document.createElement('div');
+            dayHeading.className = 'calendar-day-heading';
+            dayHeading.innerHTML = `<strong>${new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date)}</strong><span>${new Intl.DateTimeFormat(undefined, { month: 'numeric', day: 'numeric' }).format(date)}</span>`;
+            grid.append(dayHeading);
+        }
+
+        const roomBookings = data.bookings.filter((booking) => booking.roomId === room.id && !booking.cancelled);
+        for (let hour = 6; hour < 22; hour += 1) {
+            for (const minute of [0, 30]) {
+                const time = document.createElement('div');
+                time.className = 'calendar-time';
+                time.textContent = minute === 0 ? `${String(hour).padStart(2, '0')}:00` : '';
+                grid.append(time);
+                for (let day = 0; day < 7; day += 1) {
+                    const date = new Date(weekStart);
+                    date.setDate(date.getDate() + day);
+                    date.setHours(hour, minute, 0, 0);
+                    const slotEnd = new Date(date.getTime() + 30 * 60 * 1000);
+                    const slotKey = date.getTime();
+                    const overlapping = roomBookings.filter((booking) => Date.parse(booking.start) < slotEnd.getTime()
+                        && Date.parse(booking.end) > date.getTime());
+                    const isFull = room.capacity && overlapping.length >= room.capacity;
+                    const isPast = date.getTime() <= Date.now();
+                    const canSelect = room.status !== 'permanent' && !isFull && !isPast;
+                    const slot = document.createElement('button');
+                    slot.type = 'button';
+                    slot.className = `calendar-slot${overlapping.length ? ' has-bookings' : ''}${isFull ? ' at-capacity' : ''}${canSelect ? ' selectable' : ''}${selectedCalendarSlots.has(slotKey) ? ' is-selected' : ''}`;
+                    slot.dataset.slot = String(slotKey);
+                    slot.disabled = !canSelect;
+                    const names = [...new Set(overlapping.map((booking) => users.find((user) => user.id === booking.userId)?.name || 'Unknown user'))];
+                    const summary = document.createElement('span');
+                    summary.className = 'calendar-slot-summary';
+                    const status = document.createElement('span');
+                    status.className = 'calendar-slot-status';
+                    status.textContent = isFull
+                        ? `Full · ${overlapping.length}/${room.capacity}`
+                        : overlapping.length
+                            ? room.capacity ? `Available · ${overlapping.length}/${room.capacity}` : `Available · ${overlapping.length} booked`
+                            : room.status === 'permanent' ? 'Not bookable' : isPast ? 'Past'
+                                : room.capacity ? `Available · 0/${room.capacity}` : 'Available';
+                    summary.append(status);
+                    if (names.length) {
+                        const avatars = document.createElement('span');
+                        avatars.className = 'calendar-slot-avatars';
+                        names.forEach((name) => {
+                            const avatar = document.createElement('span');
+                            avatar.className = 'calendar-avatar';
+                            avatar.textContent = '👤';
+                            avatar.title = name;
+                            avatar.setAttribute('role', 'img');
+                            avatar.setAttribute('aria-label', `Booked by ${name}`);
+                            avatars.append(avatar);
+                        });
+                        summary.append(avatars);
+                    }
+                    slot.append(summary);
+                    const meter = document.createElement('span');
+                    meter.className = 'calendar-capacity-meter';
+                    const fill = document.createElement('span');
+                    fill.className = 'calendar-capacity-fill';
+                    fill.style.width = room.capacity ? `${Math.min(100, (overlapping.length / room.capacity) * 100)}%` : '0%';
+                    meter.append(fill);
+                    slot.append(meter);
+                    slot.title = overlapping.length
+                        ? `${names.join(', ')} · ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} · ${isFull ? 'Full' : `${overlapping.length}/${room.capacity || '∞'} booked`}`
+                        : status.textContent;
+                    slot.addEventListener('pointerdown', (event) => {
+                        if (!canSelect) return;
+                        event.preventDefault();
+                        isDraggingCalendar = true;
+                        dragSelectionMode = !selectedCalendarSlots.has(slotKey);
+                        setCalendarSlot(slotKey, dragSelectionMode);
+                    });
+                    slot.addEventListener('pointerenter', () => {
+                        if (isDraggingCalendar && canSelect) setCalendarSlot(slotKey, dragSelectionMode);
+                    });
+                    slot.addEventListener('click', (event) => {
+                        if (event.detail === 0 && canSelect) setCalendarSlot(slotKey, !selectedCalendarSlots.has(slotKey));
+                    });
+                    grid.append(slot);
+                }
+            }
+        }
+        gridScroller.append(grid);
+
+        const bookingActions = document.createElement('div');
+        bookingActions.className = 'calendar-booking-actions';
+        const reason = document.createElement('input');
+        reason.className = 'field-input';
+        reason.type = 'text';
+        reason.maxLength = 255;
+        reason.placeholder = 'Reason (optional)';
+        reason.setAttribute('aria-label', 'Booking reason');
+        const bookSelected = document.createElement('button');
+        bookSelected.className = 'save-button';
+        bookSelected.id = 'calendar-book-selected';
+        bookSelected.type = 'button';
+        bookSelected.disabled = selectedCalendarSlots.size === 0;
+        bookSelected.textContent = selectedCalendarSlots.size
+            ? `Book selected times (${selectedCalendarSlots.size} half-hours)`
+            : 'Select times to book';
+        bookSelected.addEventListener('click', () => saveCalendarBooking(room, reason.value));
+        bookingActions.append(reason, bookSelected);
+
+        screen.append(header, navigation, gridScroller, bookingActions);
+        elements.root.replaceChildren(screen);
+    }
+
+    function saveCalendarBooking(room, reason) {
+        const slots = [...selectedCalendarSlots].sort((first, second) => first - second);
+        if (!slots.length || room.status === 'permanent') return;
+        const now = Date.now();
+        const bookings = data.bookings.filter((booking) => booking.roomId === room.id && !booking.cancelled);
+        if (slots.some((slot) => slot <= now || (room.capacity && bookings.filter((booking) => Date.parse(booking.start) < slot + 30 * 60 * 1000
+            && Date.parse(booking.end) > slot).length >= room.capacity))) {
+            selectedCalendarSlots.clear();
+            render();
+            showToast('One or more selected times are no longer available');
+            return;
+        }
+        const hasPersonalConflict = data.bookings.some((booking) => !booking.cancelled && booking.userId === signedInUser.id
+            && slots.some((slot) => Date.parse(booking.start) < slot + 30 * 60 * 1000 && Date.parse(booking.end) > slot));
+        if (hasPersonalConflict && !window.confirm('You already have a booking during one or more selected times. Continue anyway?')) return;
+
+        const segments = [];
+        slots.forEach((slot) => {
+            const last = segments[segments.length - 1];
+            const sameDay = last && new Date(last.end - 1).toDateString() === new Date(slot).toDateString();
+            if (last && last.end === slot && sameDay) last.end += 30 * 60 * 1000;
+            else segments.push({ start: slot, end: slot + 30 * 60 * 1000 });
+        });
+        segments.forEach((segment) => data.bookings.push({
+            id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+            roomId: room.id,
+            userId: signedInUser.id,
+            start: new Date(segment.start).toISOString(),
+            end: new Date(segment.end).toISOString(),
+            reason: reason.trim() || 'used for working',
+            cancelled: false,
+            demo: false
+        }));
+        if (!saveData()) return;
+        selectedCalendarSlots.clear();
+        activeView = 'bookings';
+        previousView = 'room-calendar';
+        render();
+        showToast('Room booked successfully');
+    }
+
+    function localDateTimeValue(date) {
+        return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }
+
+    function roomHasCapacityFor(room, startTime, endTime) {
+        if (room.status === 'permanent') return false;
+        if (!room.capacity) return true;
+        const overlapping = data.bookings.filter((booking) => booking.roomId === room.id && !booking.cancelled
+            && Date.parse(booking.start) < endTime && Date.parse(booking.end) > startTime);
+        const boundaries = [startTime, endTime];
+        overlapping.forEach((booking) => {
+            boundaries.push(Math.max(startTime, Date.parse(booking.start)));
+            boundaries.push(Math.min(endTime, Date.parse(booking.end)));
+        });
+        boundaries.sort((first, second) => first - second);
+        for (let index = 0; index < boundaries.length - 1; index += 1) {
+            const segmentStart = boundaries[index];
+            const segmentEnd = boundaries[index + 1];
+            if (segmentStart === segmentEnd) continue;
+            const count = overlapping.filter((booking) => Date.parse(booking.start) < segmentEnd
+                && Date.parse(booking.end) > segmentStart).length;
+            if (count >= room.capacity) return false;
+        }
+        return true;
+    }
+
+    function bookQuickRoom(room, values) {
+        const start = new Date(values.start);
+        const end = new Date(values.end);
+        if (start < new Date() || end <= start || !roomHasCapacityFor(room, start.getTime(), end.getTime())) {
+            return { success: false, message: 'That room is no longer available for the selected time.' };
+        }
+        const hasPersonalConflict = data.bookings.some((booking) => !booking.cancelled && booking.userId === signedInUser.id
+            && Date.parse(booking.start) < end.getTime() && Date.parse(booking.end) > start.getTime());
+        if (hasPersonalConflict && !window.confirm('You already have a booking during this time. Continue anyway?')) {
+            return { success: false, message: 'Booking cancelled; no changes were made.' };
+        }
+        const booking = {
+            id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+            roomId: room.id,
+            userId: signedInUser.id,
+            start: start.toISOString(),
+            end: end.toISOString(),
+            reason: values.reason.trim() || 'used for working',
+            cancelled: false,
+            demo: false
+        };
+        data.bookings.push(booking);
+        if (!saveData()) {
+            data.bookings = data.bookings.filter((item) => item.id !== booking.id);
+            return { success: false, message: 'Could not save this booking.' };
+        }
+        return { success: true, message: `Booked ${room.name}.` };
+    }
+
+    function renderQuickBook() {
+        elements.globalSearch.hidden = true;
+        const screen = document.createElement('section');
+        screen.className = 'quick-book-view';
+        const header = document.createElement('header');
+        header.className = 'quick-book-heading';
+        const back = document.createElement('button');
+        back.className = 'back-btn';
+        back.type = 'button';
+        back.textContent = '← Back';
+        back.addEventListener('click', () => {
+            activeView = quickBookReturnView || 'buildings';
+            quickBookResult = null;
+            render();
+        });
+        const title = document.createElement('h1');
+        title.textContent = 'Quick book';
+        header.append(back, title);
+
+        if (!quickBookValues) {
+            const start = dateTimeOffset(1, 9);
+            quickBookValues = {
+                start: localDateTimeValue(start),
+                end: localDateTimeValue(new Date(start.getTime() + 60 * 60 * 1000)),
+                feature: '',
+                reason: ''
+            };
+        }
+        const form = document.createElement('form');
+        form.className = 'quick-book-form';
+        const timeFields = document.createElement('div');
+        timeFields.className = 'field-row';
+        const startLabel = document.createElement('label');
+        startLabel.className = 'field-label';
+        startLabel.htmlFor = 'quick-book-start';
+        startLabel.textContent = 'From';
+        const startInput = document.createElement('input');
+        startInput.className = 'field-input';
+        startInput.id = 'quick-book-start';
+        startInput.type = 'datetime-local';
+        startInput.required = true;
+        startInput.value = quickBookValues.start;
+        startLabel.append(startInput);
+
+        const endLabel = document.createElement('label');
+        endLabel.className = 'field-label';
+        endLabel.htmlFor = 'quick-book-end';
+        endLabel.textContent = 'To';
+        const endInput = document.createElement('input');
+        endInput.className = 'field-input';
+        endInput.id = 'quick-book-end';
+        endInput.type = 'datetime-local';
+        endInput.required = true;
+        endInput.value = quickBookValues.end;
+        endLabel.append(endInput);
+        timeFields.append(startLabel, endLabel);
+
+        const featureLabel = document.createElement('label');
+        featureLabel.className = 'field-label';
+        featureLabel.htmlFor = 'quick-book-feature';
+        featureLabel.textContent = 'Required feature';
+        const featureInput = document.createElement('input');
+        featureInput.className = 'field-input';
+        featureInput.id = 'quick-book-feature';
+        featureInput.type = 'text';
+        featureInput.setAttribute('list', 'quick-book-feature-options');
+        featureInput.autocomplete = 'off';
+        featureInput.required = true;
+        featureInput.value = quickBookValues.feature;
+        const featureOptions = document.createElement('datalist');
+        featureOptions.id = 'quick-book-feature-options';
+        data.features.forEach((feature) => featureOptions.append(new Option(feature, feature)));
+        featureLabel.append(featureInput);
+
+        const reasonLabel = document.createElement('label');
+        reasonLabel.className = 'field-label';
+        reasonLabel.htmlFor = 'quick-book-reason';
+        reasonLabel.textContent = 'Reason (optional)';
+        const reasonInput = document.createElement('textarea');
+        reasonInput.className = 'field-input';
+        reasonInput.id = 'quick-book-reason';
+        reasonInput.maxLength = 255;
+        reasonInput.value = quickBookValues.reason;
+        reasonLabel.append(reasonInput);
+
+        const submit = document.createElement('button');
+        submit.className = 'save-button';
+        submit.type = 'submit';
+        submit.textContent = 'Find and book';
+        form.append(timeFields, featureLabel, featureOptions, reasonLabel, submit);
+        form.addEventListener('input', () => {
+            if (!quickBookResult) return;
+            quickBookResult = null;
+            screen.querySelector('.quick-book-results')?.remove();
+        });
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const values = {
+                start: startInput.value,
+                end: endInput.value,
+                feature: featureInput.value.trim(),
+                reason: reasonInput.value
+            };
+            quickBookValues = values;
+            const start = new Date(values.start);
+            const end = new Date(values.end);
+            const startMinute = start.getHours() * 60 + start.getMinutes();
+            const endMinute = end.getHours() * 60 + end.getMinutes();
+            if (!values.feature || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+                quickBookResult = { kind: 'error', message: 'Enter a feature and a valid time range.' };
+                renderQuickBook();
+                return;
+            }
+            if (start < new Date() || end <= start || start.toDateString() !== end.toDateString()
+                || startMinute < 360 || startMinute >= 1320 || endMinute > 1320) {
+                quickBookResult = { kind: 'error', message: 'Choose a future time on one day, between 06:00 and 22:00.' };
+                renderQuickBook();
+                return;
+            }
+
+            const freeRooms = data.rooms.filter((room) => roomHasCapacityFor(room, start.getTime(), end.getTime()));
+            const normalizedFeature = normalizedFeatureName(values.feature);
+            const exactMatches = freeRooms.filter((room) => (room.features || [])
+                .some((feature) => normalizedFeatureName(feature) === normalizedFeature));
+            if (exactMatches.length) {
+                exactMatches.sort((first, second) => (Number(first.capacity) || Number.MAX_SAFE_INTEGER)
+                    - (Number(second.capacity) || Number.MAX_SAFE_INTEGER) || first.name.localeCompare(second.name));
+                const result = bookQuickRoom(exactMatches[0], values);
+                quickBookResult = { kind: result.success ? 'success' : 'error', message: result.message };
+                if (result.success) showToast(result.message);
+            } else if (!freeRooms.length) {
+                quickBookResult = { kind: 'error', message: 'No rooms are free for that time.' };
+            } else {
+                const suggestions = freeRooms.map((room) => {
+                    const matches = (room.features || []).map((feature) => ({
+                        feature,
+                        score: featureSimilarity(values.feature, feature)
+                    })).sort((first, second) => second.score - first.score);
+                    return { room, feature: matches[0]?.feature || 'No listed features', score: matches[0]?.score || 0 };
+                }).sort((first, second) => second.score - first.score || first.room.name.localeCompare(second.room.name)).slice(0, 5);
+                quickBookResult = { kind: 'suggestions', message: 'No free room has that exact feature. Closest available rooms:', suggestions };
+            }
+            renderQuickBook();
+        });
+
+        screen.append(header, form);
+        if (quickBookResult) {
+            const results = document.createElement('section');
+            results.className = `quick-book-results ${quickBookResult.kind}`;
+            const message = document.createElement('p');
+            message.className = 'quick-book-result-message';
+            message.textContent = quickBookResult.message;
+            results.append(message);
+            if (quickBookResult.suggestions) {
+                quickBookResult.suggestions.forEach((suggestion) => {
+                    const item = document.createElement('article');
+                    item.className = 'quick-book-result-item';
+                    const details = document.createElement('div');
+                    const roomName = document.createElement('h2');
+                    roomName.textContent = suggestion.room.name;
+                    const building = BUILDINGS.find((entry) => entry.id === suggestion.room.buildingId);
+                    const section = building?.sections.find((entry) => entry.id === suggestion.room.sectionId);
+                    const location = document.createElement('p');
+                    location.textContent = `${building?.name || ''} · ${section?.name || ''} · Floor ${floorName(suggestion.room.floor)}`;
+                    const match = document.createElement('p');
+                    match.textContent = `${suggestion.feature} · ${Math.round(suggestion.score * 100)}% feature match · ${suggestion.room.capacity || 'Unlimited'} seats`;
+                    details.append(roomName, location, match);
+                    const book = document.createElement('button');
+                    book.className = 'save-button';
+                    book.type = 'button';
+                    book.textContent = 'Book this room';
+                    book.addEventListener('click', () => {
+                        const result = bookQuickRoom(suggestion.room, quickBookValues);
+                        quickBookResult = { kind: result.success ? 'success' : 'error', message: result.message };
+                        if (result.success) showToast(result.message);
+                        renderQuickBook();
+                    });
+                    item.append(details, book);
+                    results.append(item);
+                });
+            }
+            screen.append(results);
+        }
+        elements.root.replaceChildren(screen);
+    }
+
+    function openQuickBook() {
+        if (activeView === 'quick-book') {
+            activeView = quickBookReturnView || 'buildings';
+            quickBookResult = null;
+        } else {
+            quickBookReturnView = activeView;
+            quickBookValues = null;
+            quickBookResult = null;
+            activeView = 'quick-book';
+        }
+        render();
+    }
+
     function formatDateTime(value) {
         return new Intl.DateTimeFormat(undefined, {
             weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
@@ -692,9 +1266,10 @@
         const back = document.createElement('button');
         back.className = 'back-btn';
         back.type = 'button';
-        back.textContent = '← Buildings';
+        back.textContent = '← Back';
         back.addEventListener('click', () => {
-            activeView = 'buildings';
+            activeView = previousView || 'buildings';
+            previousView = null;
             render();
         });
         header.append(title, back);
@@ -756,32 +1331,45 @@
             list.append(item);
         });
         screen.append(header, list);
-        addDemoNotice(screen);
         elements.root.replaceChildren(screen);
     }
 
     function renderAccountNav() {
         elements.accountNav.replaceChildren();
+        elements.accountNav.hidden = !signedInUser || ['bookings', 'quick-book', 'room-calendar'].includes(activeView);
         if (!signedInUser) return;
         const identity = document.createElement('span');
         identity.className = 'signed-in-user';
         identity.textContent = signedInUser.name;
+        const quickBook = document.createElement('button');
+        quickBook.className = 'nav-action quick-book-nav';
+        quickBook.type = 'button';
+        quickBook.textContent = 'Quick book';
+        quickBook.setAttribute('aria-pressed', activeView === 'quick-book' ? 'true' : 'false');
+        quickBook.addEventListener('click', openQuickBook);
         const bookings = document.createElement('button');
-        bookings.className = 'nav-action';
+        bookings.className = 'nav-action bookings-nav';
         bookings.type = 'button';
         bookings.textContent = 'My bookings';
+        bookings.setAttribute('aria-pressed', activeView === 'bookings' ? 'true' : 'false');
         bookings.addEventListener('click', () => {
-            activeView = 'bookings';
+            if (activeView === 'bookings') {
+                activeView = previousView || 'buildings';
+                previousView = null;
+            } else {
+                previousView = activeView;
+                activeView = 'bookings';
+            }
             render();
         });
         const reset = document.createElement('button');
-        reset.className = 'nav-action';
+        reset.className = 'nav-action reset-nav';
         reset.type = 'button';
         reset.textContent = 'Reset demo';
         reset.addEventListener('click', () => {
             if (!window.confirm('Restore random demo rooms and seeded bookings? Your room and booking changes will be lost.')) return;
             const rooms = createDemoRooms();
-            data = { version: 5, rooms, bookings: createDemoBookings(rooms), features: createFeatureCatalog(data.features, rooms) };
+            data = { version: 6, demoSeedVersion: 2, rooms, bookings: createDemoBookings(rooms), features: createFeatureCatalog(data.features, rooms) };
             if (!saveData()) return;
             activeBuildingId = null;
             activeSectionId = null;
@@ -800,12 +1388,12 @@
             activeView = 'buildings';
             render();
         });
-        elements.accountNav.append(identity, bookings, reset, logout);
+        elements.accountNav.append(identity, quickBook, bookings, reset, logout);
     }
 
     function render() {
         renderAccountNav();
-        elements.statusLegend.hidden = !signedInUser;
+        elements.statusLegend.hidden = !signedInUser || ['bookings', 'quick-book', 'room-calendar'].includes(activeView);
         if (!signedInUser) {
             renderLogin();
             return;
@@ -813,6 +1401,12 @@
         const building = BUILDINGS.find((item) => item.id === activeBuildingId);
         const section = building && building.sections.find((item) => item.id === activeSectionId);
         if (activeView === 'bookings') renderBookings();
+        else if (activeView === 'quick-book') renderQuickBook();
+        else if (activeView === 'room-calendar') {
+            const room = data.rooms.find((item) => item.id === calendarRoomId);
+            if (room) renderRoomCalendar(room);
+            else renderBuildings();
+        }
         else if (!building) renderBuildings();
         else if (!section) renderSections(building);
         else renderRooms(building, section);
@@ -911,6 +1505,7 @@
     }
 
     function openRoomDialog(room) {
+        if (!isAdmin()) return;
         elements.roomForm.reset();
         pendingFeatures = [];
         elements.roomId.value = room ? room.id : '';
@@ -920,7 +1515,10 @@
         elements.roomFloor.replaceChildren(...[0, 1, 2, 3, 4].map((floor) => new Option(`Floor ${floorName(floor)}`, String(floor))));
         elements.roomName.value = room ? room.name : '';
         elements.roomFloor.value = String(room ? room.floor : activeFloor);
-        elements.roomStatus.value = room ? room.status : 'available';
+        elements.roomBuilding.disabled = Boolean(room);
+        elements.roomSection.disabled = Boolean(room);
+        elements.roomFloor.disabled = Boolean(room);
+        elements.roomStatus.value = room && room.status === 'permanent' ? 'permanent' : 'available';
         elements.roomCapacity.value = room ? room.capacity || '' : '';
         elements.roomOwner.value = room ? room.owner || '' : '';
         renderFeatureOptions(room && Array.isArray(room.features) ? room.features : []);
@@ -929,23 +1527,6 @@
         elements.deleteRoom.hidden = !room;
         elements.roomDialog.showModal();
         elements.roomName.focus();
-    }
-
-    function localDateTimeValue(date) {
-        return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    }
-
-    function openBookingDialog(room) {
-        if (room.status === 'permanent') return;
-        elements.bookingForm.reset();
-        elements.bookingForm.dataset.roomId = room.id;
-        elements.bookingTitle.textContent = `Book ${room.name}`;
-        elements.bookingRoomInfo.textContent = `${BUILDINGS.find((item) => item.id === room.buildingId).name} · ${room.capacity || 'No'} seat capacity`;
-        const start = dateTimeOffset(1, 9);
-        elements.bookingStart.value = localDateTimeValue(start);
-        elements.bookingEnd.value = localDateTimeValue(new Date(start.getTime() + 60 * 60 * 1000));
-        elements.bookingError.hidden = true;
-        elements.bookingDialog.showModal();
     }
 
     function closeDialog(dialog) {
@@ -971,22 +1552,20 @@
     });
     document.getElementById('close-dialog').addEventListener('click', () => closeDialog(elements.roomDialog));
     document.getElementById('cancel-dialog').addEventListener('click', () => closeDialog(elements.roomDialog));
-    document.getElementById('close-booking-dialog').addEventListener('click', () => closeDialog(elements.bookingDialog));
-    document.getElementById('cancel-booking-dialog').addEventListener('click', () => closeDialog(elements.bookingDialog));
-    [elements.roomDialog, elements.bookingDialog].forEach((dialog) => {
-        dialog.addEventListener('click', (event) => {
-            if (event.target === dialog) closeDialog(dialog);
-        });
+    elements.roomDialog.addEventListener('click', (event) => {
+        if (event.target === elements.roomDialog) closeDialog(elements.roomDialog);
     });
 
     elements.roomForm.addEventListener('submit', (event) => {
         event.preventDefault();
+        if (!isAdmin()) return;
         const id = elements.roomId.value;
+        const existingRoom = data.rooms.find((item) => item.id === id);
         const room = {
             id: id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`),
-            buildingId: elements.roomBuilding.value,
-            sectionId: elements.roomSection.value,
-            floor: Number(elements.roomFloor.value),
+            buildingId: existingRoom ? existingRoom.buildingId : elements.roomBuilding.value,
+            sectionId: existingRoom ? existingRoom.sectionId : elements.roomSection.value,
+            floor: existingRoom ? existingRoom.floor : Number(elements.roomFloor.value),
             name: elements.roomName.value.trim(),
             owner: elements.roomOwner.value.trim(),
             capacity: elements.roomCapacity.value ? Number(elements.roomCapacity.value) : null,
@@ -994,7 +1573,8 @@
             status: elements.roomStatus.value
         };
         data.features = createFeatureCatalog([...data.features, ...pendingFeatures]);
-        data.version = 5;
+        data.version = 6;
+        data.demoSeedVersion = 2;
         const existingIndex = data.rooms.findIndex((item) => item.id === id);
         if (existingIndex === -1) data.rooms.push(room);
         else data.rooms[existingIndex] = room;
@@ -1008,6 +1588,7 @@
     });
 
     elements.deleteRoom.addEventListener('click', () => {
+        if (!isAdmin()) return;
         const id = elements.roomId.value;
         const room = data.rooms.find((item) => item.id === id);
         if (!room || !window.confirm(`Delete ${room.name}?`)) return;
@@ -1019,47 +1600,8 @@
         showToast('Room deleted');
     });
 
-    elements.bookingForm.addEventListener('submit', (event) => {
-        event.preventDefault();
-        const room = data.rooms.find((item) => item.id === elements.bookingForm.dataset.roomId);
-        const start = new Date(elements.bookingStart.value);
-        const end = new Date(elements.bookingEnd.value);
-        const now = new Date();
-        if (!room || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start < now || end <= start) {
-            elements.bookingError.textContent = 'Choose a future start time and an end time after it.';
-            elements.bookingError.hidden = false;
-            return;
-        }
-        if (room.status === 'permanent') {
-            elements.bookingError.textContent = 'Permanent rooms are not bookable.';
-            elements.bookingError.hidden = false;
-            return;
-        }
-        const overlapping = data.bookings.filter((booking) => !booking.cancelled
-            && Date.parse(booking.start) < end.getTime()
-            && Date.parse(booking.end) > start.getTime());
-        if (room.capacity && overlapping.filter((booking) => booking.roomId === room.id).length >= room.capacity) {
-            elements.bookingError.textContent = 'This room is at capacity for the selected time.';
-            elements.bookingError.hidden = false;
-            return;
-        }
-        const personalConflict = overlapping.some((booking) => booking.userId === signedInUser.id);
-        if (personalConflict && !window.confirm('You already have a booking during this time. Continue anyway?')) return;
-        data.bookings.push({
-            id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-            roomId: room.id,
-            userId: signedInUser.id,
-            start: start.toISOString(),
-            end: end.toISOString(),
-            reason: elements.bookingReason.value.trim() || 'used for working',
-            cancelled: false,
-            demo: false
-        });
-        if (!saveData()) return;
-        closeDialog(elements.bookingDialog);
-        activeView = 'bookings';
-        render();
-        showToast('Room booked successfully');
+    window.addEventListener('pointerup', () => {
+        isDraggingCalendar = false;
     });
 
     window.addEventListener('storage', (event) => {

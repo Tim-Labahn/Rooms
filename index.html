@@ -23,13 +23,13 @@
         <div id="view-root" aria-live="polite"></div>
     </main>
 
-    <aside class="status-legend" aria-label="Room status legend">
-        <strong>Room Status</strong>
+    <details class="status-legend" aria-label="Room status legend">
+        <summary>Room Status</summary>
         <div><span class="legend-swatch available"></span>Available</div>
         <div><span class="legend-swatch occupied"></span>Occupied</div>
         <div><span class="legend-swatch full"></span>Full</div>
         <div><span class="legend-swatch permanent"></span>Permanent / Owned</div>
-    </aside>
+    </details>
 
     <dialog class="room-dialog" id="room-dialog" aria-labelledby="dialog-title">
         <form id="room-form">
@@ -58,12 +58,10 @@
                     <select class="field-input" id="room-floor" name="floor"></select>
                 </div>
                 <div>
-                    <label class="field-label" for="room-status">Status</label>
+                    <label class="field-label" for="room-status">Booking access</label>
                     <select class="field-input" id="room-status" name="status">
-                        <option value="available">Available</option>
-                        <option value="occupied">Occupied</option>
-                        <option value="full">Full</option>
-                        <option value="permanent">Permanent</option>
+                        <option value="available">Bookable</option>
+                        <option value="permanent">Not bookable</option>
                     </select>
                 </div>
                 <div>
@@ -86,28 +84,6 @@
                 <button class="delete-button" id="delete-room" type="button" hidden>Delete room</button>
                 <button class="cancel-button" id="cancel-dialog" type="button">Cancel</button>
                 <button class="save-button" type="submit">Save room</button>
-            </div>
-        </form>
-    </dialog>
-    <dialog class="room-dialog booking-dialog" id="booking-dialog" aria-labelledby="booking-title">
-        <form id="booking-form">
-            <div class="dialog-heading">
-                <div>
-                    <h2 id="booking-title">Book room</h2>
-                    <p class="booking-room-info" id="booking-room-info"></p>
-                </div>
-                <button class="icon-button" id="close-booking-dialog" type="button" aria-label="Close">×</button>
-            </div>
-            <label class="field-label" for="booking-start">From</label>
-            <input class="field-input" id="booking-start" name="start" type="datetime-local" required>
-            <label class="field-label" for="booking-end">To</label>
-            <input class="field-input" id="booking-end" name="end" type="datetime-local" required>
-            <label class="field-label" for="booking-reason">Reason <span class="optional">OPTIONAL</span></label>
-            <textarea class="field-input booking-reason-input" id="booking-reason" name="reason" maxlength="255" placeholder="Why do you need this room?"></textarea>
-            <p class="booking-error" id="booking-error" role="alert" hidden></p>
-            <div class="dialog-actions">
-                <button class="cancel-button" id="cancel-booking-dialog" type="button">Cancel</button>
-                <button class="save-button" type="submit">Confirm booking</button>
             </div>
         </form>
     </dialog>
