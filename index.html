@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f0f2f5">
+    <title>Rooms - Simple Booking</title>
+    <link rel="stylesheet" href="public/css/home.css">
+    <link rel="stylesheet" href="rooms.css">
+    <script src="rooms.js" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="./">Rooms - Simple Booking</a>
+        <label class="global-search" id="global-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="search" type="search" placeholder="Search rooms" autocomplete="off" aria-label="Search rooms">
+        </label>
+        <div class="topbar-meta">
+            <span class="local-indicator"><span></span> Saved in this browser</span>
+            <button class="text-button" id="reset-data" type="button">Reset demo data</button>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div id="view-root" aria-live="polite"></div>
+    </main>
+
+    <aside class="status-legend" aria-label="Room status legend">
+        <strong>Room Status</strong>
+        <div><span class="legend-swatch available"></span>Available</div>
+        <div><span class="legend-swatch occupied"></span>Occupied</div>
+        <div><span class="legend-swatch full"></span>Full</div>
+        <div><span class="legend-swatch permanent"></span>Permanent / Owned</div>
+    </aside>
+
+    <dialog class="room-dialog" id="room-dialog" aria-labelledby="dialog-title">
+        <form id="room-form">
+            <div class="dialog-heading">
+                <div>
+                    <h2 id="dialog-title">Add a room</h2>
+                </div>
+                <button class="icon-button" id="close-dialog" type="button" aria-label="Close">×</button>
+            </div>
+            <input id="room-id" type="hidden">
+            <label class="field-label" for="room-name">Room name</label>
+            <input class="field-input" id="room-name" name="name" maxlength="60" placeholder="e.g. Meeting room 01" required>
+            <div class="field-row">
+                <div>
+                    <label class="field-label" for="room-building">Building</label>
+                    <select class="field-input" id="room-building" name="building" required></select>
+                </div>
+                <div>
+                    <label class="field-label" for="room-section">Section</label>
+                    <select class="field-input" id="room-section" name="section" required></select>
+                </div>
+            </div>
+            <div class="field-row">
+                <div>
+                    <label class="field-label" for="room-floor">Floor</label>
+                    <select class="field-input" id="room-floor" name="floor"></select>
+                </div>
+                <div>
+                    <label class="field-label" for="room-status">Status</label>
+                    <select class="field-input" id="room-status" name="status">
+                        <option value="available">Available</option>
+                        <option value="occupied">Occupied</option>
+                        <option value="full">Full</option>
+                        <option value="permanent">Permanent</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="field-label" for="room-capacity">Capacity</label>
+                    <input class="field-input" id="room-capacity" name="capacity" type="number" min="1" max="999" placeholder="Optional">
+                </div>
+            </div>
+            <label class="field-label" for="room-owner">Owner <span class="optional">OPTIONAL</span></label>
+            <input class="field-input" id="room-owner" name="owner" maxlength="60" placeholder="Name or team">
+            <div class="dialog-actions">
+                <button class="delete-button" id="delete-room" type="button" hidden>Delete room</button>
+                <button class="cancel-button" id="cancel-dialog" type="button">Cancel</button>
+                <button class="save-button" type="submit">Save room</button>
+            </div>
+        </form>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
